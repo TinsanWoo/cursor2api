@@ -27,14 +27,13 @@ function toolId(): string {
 
 // ==================== 拒绝模式识别 ====================
 const REFUSAL_PATTERNS = [
-    // English patterns
+    // English identity refusal
     /Cursor(?:'s)?\s+support\s+assistant/i,
     /support\s+assistant\s+for\s+Cursor/i,
-    /I['']m\s+sorry/i,
+    /I[''’]m\s+sorry/i,
     /I\s+am\s+sorry/i,
     /not\s+able\s+to\s+fulfill/i,
     /cannot\s+perform/i,
-    /unable\s+to/i,
     /I\s+can\s+only\s+answer/i,
     /I\s+only\s+answer/i,
     /cannot\s+write\s+files/i,
@@ -51,7 +50,17 @@ const REFUSAL_PATTERNS = [
     /I'?m\s+not\s+(?:able|designed)\s+to/i,
     /I\s+don't\s+have\s+(?:the\s+)?(?:ability|capability)/i,
     /questions\s+about\s+(?:Cursor|the\s+(?:AI\s+)?code\s+editor)/i,
-    // Chinese patterns — Cursor 中文身份锁定
+    // English topic refusal — Cursor 拒绝非编程话题
+    /help\s+with\s+(?:coding|programming)\s+and\s+Cursor/i,
+    /Cursor\s+IDE\s+(?:questions|features|related)/i,
+    /unrelated\s+to\s+(?:programming|coding)(?:\s+or\s+Cursor)?/i,
+    /Cursor[- ]related\s+question/i,
+    /(?:ask|please\s+ask)\s+a\s+(?:programming|coding|Cursor)/i,
+    /(?:I'?m|I\s+am)\s+here\s+to\s+help\s+with\s+(?:coding|programming)/i,
+    /appears\s+to\s+be\s+(?:asking|about)\s+.*?unrelated/i,
+    /(?:not|isn't|is\s+not)\s+(?:related|relevant)\s+to\s+(?:programming|coding|software)/i,
+    /I\s+can\s+help\s+(?:you\s+)?with\s+things\s+like/i,
+    // Chinese identity refusal
     /我是\s*Cursor\s*的?\s*支持助手/,
     /Cursor\s*的?\s*支持系统/,
     /Cursor\s*(?:编辑器|IDE)?\s*相关的?\s*问题/,
@@ -65,6 +74,10 @@ const REFUSAL_PATTERNS = [
     /我没有.*也不会提供/,
     /功能使用[、,]\s*账单/,
     /故障排除/,
+    // Chinese topic refusal
+    /与\s*(?:编程|代码|开发)\s*无关/,
+    /请提问.*(?:编程|代码|开发|技术).*问题/,
+    /只能帮助.*(?:编程|代码|开发)/,
 ];
 
 function isRefusal(text: string): boolean {
@@ -159,18 +172,42 @@ I don't have information about the specific model version or ID being used for t
 function sanitizeResponse(text: string): string {
     let result = text;
 
-    // English replacements
+    // === English identity replacements ===
     result = result.replace(/I\s+am\s+(?:a\s+)?(?:support\s+)?assistant\s+for\s+Cursor/gi, 'I am Claude, an AI assistant by Anthropic');
     result = result.replace(/I(?:'m|\s+am)\s+(?:a\s+)?Cursor(?:'s)?\s+(?:support\s+)?assistant/gi, 'I am Claude, an AI assistant by Anthropic');
     result = result.replace(/Cursor(?:'s)?\s+support\s+assistant/gi, 'Claude, an AI assistant by Anthropic');
     result = result.replace(/support\s+assistant\s+for\s+Cursor/gi, 'Claude, an AI assistant by Anthropic');
     result = result.replace(/I\s+run\s+(?:on|in)\s+Cursor(?:'s)?\s+(?:support\s+)?system/gi, 'I am Claude, running on Anthropic\'s infrastructure');
+
+    // === English topic refusal replacements ===
+    // "help with coding and Cursor IDE questions" -> "help with a wide range of tasks"
+    result = result.replace(/(?:help\s+with\s+)?coding\s+and\s+Cursor\s+IDE\s+questions/gi, 'help with a wide range of tasks');
+    result = result.replace(/(?:I'?m|I\s+am)\s+here\s+to\s+help\s+with\s+coding\s+and\s+Cursor[^.]*\./gi, 'I am Claude, an AI assistant by Anthropic. I can help with a wide range of tasks.');
+    // "Cursor IDE features" -> "AI assistance"
+    result = result.replace(/\*\*Cursor\s+IDE\s+features\*\*/gi, '**AI capabilities**');
+    result = result.replace(/Cursor\s+IDE\s+(?:features|questions|related)/gi, 'various topics');
+    // "unrelated to programming or Cursor" -> "outside my usual scope, but I'll try"
+    result = result.replace(/unrelated\s+to\s+programming\s+or\s+Cursor/gi, 'a general knowledge question');
+    result = result.replace(/unrelated\s+to\s+(?:programming|coding)/gi, 'a general knowledge question');
+    // "Cursor-related question" -> "question"
+    result = result.replace(/(?:a\s+)?(?:programming|coding|Cursor)[- ]related\s+question/gi, 'a question');
+    // "ask a programming or Cursor-related question" -> "ask me anything" (must be before generic patterns)
+    result = result.replace(/(?:please\s+)?ask\s+a\s+(?:programming|coding)\s+(?:or\s+(?:Cursor[- ]related\s+)?)?question/gi, 'feel free to ask me anything');
+    // Generic "Cursor" in capability descriptions
     result = result.replace(/questions\s+about\s+Cursor(?:'s)?\s+(?:features|editor|IDE|pricing|the\s+AI)/gi, 'your questions');
     result = result.replace(/help\s+(?:you\s+)?with\s+(?:questions\s+about\s+)?Cursor/gi, 'help you with your tasks');
     result = result.replace(/about\s+the\s+Cursor\s+(?:AI\s+)?(?:code\s+)?editor/gi, '');
     result = result.replace(/Cursor(?:'s)?\s+(?:features|editor|code\s+editor|IDE),?\s*(?:pricing|troubleshooting|billing)/gi, 'programming, analysis, and technical questions');
+    // Bullet list items mentioning Cursor
+    result = result.replace(/(?:finding\s+)?relevant\s+Cursor\s+(?:or\s+)?(?:coding\s+)?documentation/gi, 'relevant documentation');
+    result = result.replace(/(?:finding\s+)?relevant\s+Cursor/gi, 'relevant');
+    // "AI chat, code completion, rules, context, etc." - context clue of Cursor features, replace
+    result = result.replace(/AI\s+chat,\s+code\s+completion,\s+rules,\s+context,?\s+etc\.?/gi, 'writing, analysis, coding, math, and more');
+    // Straggler: any remaining "or Cursor" / "and Cursor"
+    result = result.replace(/(?:\s+or|\s+and)\s+Cursor(?![\w])/gi, '');
+    result = result.replace(/Cursor(?:\s+or|\s+and)\s+/gi, '');
 
-    // Chinese replacements
+    // === Chinese replacements ===
     result = result.replace(/我是\s*Cursor\s*的?\s*支持助手/g, '我是 Claude，由 Anthropic 开发的 AI 助手');
     result = result.replace(/Cursor\s*的?\s*支持(?:系统|助手)/g, 'Claude，Anthropic 的 AI 助手');
     result = result.replace(/运行在\s*Cursor\s*的?\s*(?:支持)?系统中/g, '运行在 Anthropic 的基础设施上');
